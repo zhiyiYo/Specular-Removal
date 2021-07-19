@@ -1,10 +1,24 @@
 # coding:utf-8
 import torch
+import cv2 as cv
+import numpy as np
 from torch import nn
 from PIL import Image
 import torch.nn.functional as F
 from torchvision import transforms as T
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+
+
+def exception_handler(predict_func):
+    """ 处理图像太大导致的 RuntimeError 异常 """
+    def wrapper(model, *args, **kwargs):
+        try:
+            return predict_func(model, *args, **kwargs)
+        except RuntimeError:
+            print('😑 图像太大啦，请缩小图像大小后再尝试~~')
+            exit()
+    return wrapper
 
 
 class EncoderBlock(nn.Module):
@@ -146,8 +160,9 @@ class SRNet(nn.Module):
             ConvBlock(17, 8, 3, 1),
             ConvBlock(8, 3, 3, 1),
         )
-        self.D_conv = nn.Sequential(
-            ConvBlock(23, 8, 3, 1),
+        self.D_conv1 = nn.Conv2d(16, 7, 3, padding=1)
+        self.D_conv2 = nn.Sequential(
+            ConvBlock(14, 8, 3, 1),
             ConvBlock(8, 3, 3, 1),
         )
 
@@ -183,9 +198,10 @@ class SRNet(nn.Module):
         x10 = torch.cat([self.decoder1(x9), x_cdff], dim=1)
         M = self.M_conv(x10)
         S = self.S_conv(torch.cat([x10, M], dim=1))
-        D = self.D_conv(torch.cat([x10, M, S, x], dim=1))
+        D = self.D_conv2(torch.cat([self.D_conv1(x10), M, S, x], dim=1))
         return M, S, D
 
+    @exception_handler
     def predict(self, image: Image.Image, use_gpu=True):
         """ 预测高光区域的蒙版、高光区域图像和去掉高光后的图像
 
@@ -211,21 +227,23 @@ class SRNet(nn.Module):
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
-        # 将图像变换到宽高都是 32 的整数倍
+        # 将图像填充到宽高都是 32 的整数倍
         w, h = image.size
-        w_,h_ = round(w/32)*32, round(h/32)*32
-        image = image.resize((w_, h_))
+        w_padded = (w//32+(w % 32 != 0))*32
+        h_padded = (h//32+(h % 32 != 0))*32
+        image_padded = cv.copyMakeBorder(
+            np.uint8(image), 0, h_padded-h, 0, w_padded-w, cv.BORDER_REFLECT)
 
         # 预测
-        image = T.ToTensor()(image).unsqueeze(0)
+        image = T.ToTensor()(image_padded).unsqueeze(0)
         M, S, D = self(image.to('cuda:0' if use_gpu else 'cpu'))
         M = T.ToPILImage()(M.to('cpu').ge(0.5).to(torch.float32).squeeze())
         S = T.ToPILImage()(S.to('cpu').squeeze())
         D = T.ToPILImage()(D.to('cpu').squeeze())
 
-        M = M.resize((w, h))
-        S = S.resize((w, h))
-        D = D.resize((w, h))
+        M = M.crop((0, 0, w, h))
+        S = S.crop((0, 0, w, h))
+        D = D.crop((0, 0, w, h))
         return M, S, D
 
     def remove_specular(self, image: Image.Image):
@@ -240,11 +258,11 @@ class SRNet(nn.Module):
 
 
 if __name__ == '__main__':
-    image = Image.open('../data/SHIQ_data/test/14001_A.png')
+    image = Image.open('../resource/images/塑料盒.png')
     model = SRNet().to('cuda:0')
     M, S, D = model.predict(image)
 
-    plt.style.use(['image_process'])
+    mpl.rc_file('../resource/style/image_process.mplstyle')
 
     fig, axes = plt.subplots(1, 4, num='高光去除')
     images = [image, M, S, D]

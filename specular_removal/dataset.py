@@ -1,5 +1,6 @@
 # coding:utf-8
 import os
+
 from PIL import Image
 from torchvision import transforms as T
 from torch.utils.data import Dataset
@@ -22,7 +23,7 @@ class SRDataset(Dataset):
         super().__init__()
         if not os.path.exists(dir_path):
             raise Exception(f"文件夹 {dir_path} 不存在！")
-            
+
         self.image_paths = [os.path.join(dir_path, i)
                             for i in os.listdir(dir_path)]
         # 检查图像数量是否正确

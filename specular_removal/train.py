@@ -1,7 +1,6 @@
 # coding:utf-8
 import os
 import time
-import json
 from datetime import datetime
 
 import torch
@@ -10,16 +9,14 @@ from torch.optim import Adam
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
-from torch.utils.tensorboard import SummaryWriter
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from dataset import SRDataset
-from network import SRNet
+from .dataset import SRDataset
+from .network import SRNet
 
 
-def save_model(train_func):
-    """ 保存模型 """
+def exception_handler(train_func):
+    """ 处理训练过程中发生的异常并保存模型 """
     def wrapper(train_pipeline, *args, **kwargs):
         try:
             return train_func(train_pipeline, *args, **kwargs)
@@ -46,7 +43,7 @@ class TrainPipeline:
 
     def __init__(self, train_dataset_dir: str, test_dataset_dir: str, lr=0.01, step_size=10,
                  train_batch_size=10, test_batch_size=10, epochs=20, test_freq=5, use_gpu=True,
-                 model_dir=None, log_dir=None):
+                 model_dir=None):
         """
         Parameters
         ----------
@@ -79,16 +76,12 @@ class TrainPipeline:
 
         model_dir: str
             模型保存文件夹路径，如果为 None，则保存到 `'./model'`
-
-        log_dir: str
-            记录训练日志的文件夹路径
         """
         self.lr = lr
         self.epochs = epochs
         self.test_freq = test_freq
         self.device = torch.device('cuda:0' if use_gpu else 'cpu')
         self.model = SRNet().to(self.device)
-        self.logger = SummaryWriter(log_dir)
         self.model_dir = model_dir if model_dir else 'model'
         # 创建数据集和数据加载器
         self.train_dataset = SRDataset(train_dataset_dir)
@@ -112,12 +105,11 @@ class TrainPipeline:
         torch.save(self.model.state_dict(), path)
         print(f'🎉 已将当前模型保存到 {os.path.join(os.getcwd(), path)}')
 
-    @save_model
+    @exception_handler
     def train(self):
         """ 训练模型 """
         train_losses = []
         test_losses = []
-        accuracies = []
         bar_format = '{desc}{n_fmt:>4s}/{total_fmt:<4s}|{bar}|{postfix}'
         print('🚀 开始训练！')
         for e in range(self.epochs):
@@ -164,41 +156,6 @@ class TrainPipeline:
             # 记录误差
             train_loss = train_loss.item()
             train_losses.append(train_loss)
-            self.logger.add_scalar("loss curve", train_loss, e)
             self.lr_scheduler.step()
 
-        self.logger.close()
-        return train_losses, test_losses, accuracies
-
-
-if __name__ == '__main__':
-    train_config = {
-        'lr': 0.01,
-        'epochs': 10,
-        'test_freq': 4,
-        'step_size': 6,
-        'train_dataset_dir': '../data/SHIQ_data/train',
-        'test_dataset_dir': '../data/SHIQ_data/test',
-        'train_batch_size': 24,
-        'test_batch_size': 24,
-        'model_dir': '../model',
-        'log_dir': '../log',
-        'use_gpu': True
-    }
-    train_pipeline = TrainPipeline(**train_config)
-    train_losses, test_losses, accuracies = train_pipeline.train()
-    train_pipeline.save()
-    with open(f"{train_config['log_dir']}/train_log.json", 'w', encoding='utf-8') as f:
-        json.dump({
-            "train_losses": train_losses,
-            "test_losses": test_losses,
-            "test_freq": train_config['test_freq']
-        }, f)
-
-    plt.style.use(['matlab'])
-    plt.plot(range(1, train_config["epochs"] + 1), train_losses)
-    plt.title('Loss curve')
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
-    plt.legend(['train loss'])
-    plt.show()
+        return train_losses, test_losses
