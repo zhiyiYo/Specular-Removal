@@ -147,7 +147,7 @@ class SRNet(nn.Module):
         self.decoder4 = DecoderBlock(64, 16, scale_factor=2)
         self.decoder3 = DecoderBlock(32, 8, scale_factor=2)
         self.decoder2 = DecoderBlock(16, 4, scale_factor=2)
-        self.decoder1 = DecoderBlock(8, 1, scale_factor=2)
+        self.decoder1 = DecoderBlock(4, 1, scale_factor=2)
         # CDFF 模块
         self.cdff = CDFFBlock()
         # 输出卷积块
@@ -194,7 +194,7 @@ class SRNet(nn.Module):
         x6 = torch.cat([self.decoder5(x5), x4], dim=1)
         x7 = torch.cat([self.decoder4(x6), x3], dim=1)
         x8 = torch.cat([self.decoder3(x7), x2], dim=1)
-        x9 = torch.cat([self.decoder2(x8), x1], dim=1)
+        x9 = self.decoder2(x8)
         x10 = torch.cat([self.decoder1(x9), x_cdff], dim=1)
         M = self.M_conv(x10)
         S = self.S_conv(torch.cat([x10, M], dim=1))
@@ -268,7 +268,7 @@ if __name__ == '__main__':
     images = [image, M, S, D]
     titles = ['Original image', 'Specular mask',
               'Specular image', 'Specular removal image']
-    for i, (ax, im, title) in enumerate(zip(axes, images, titles)):
+    for ax, im, title in zip(axes, images, titles):
         cmap = plt.cm.gray if title == 'Specular mask' else None
         ax.imshow(im, cmap=cmap)
         ax.set_title(title)

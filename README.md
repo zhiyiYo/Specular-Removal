@@ -1,4 +1,5 @@
 # Specular Removal
+Single image specular removal based on deep learning.
 
 ## Quick start
 1. Create virtual environment:
@@ -26,6 +27,11 @@
   conda activate Specular_Removal
   python train.py
   ```
+
+## Examples
+![漏勺](resource/screenshot/漏勺.png)
+![橙子](resource/screenshot/橙子.png)
+![亚马逊包装袋](resource/screenshot/亚马逊包装袋.png)
 
 
 ## References

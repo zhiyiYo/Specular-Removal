@@ -2,13 +2,14 @@
 import os
 import time
 from datetime import datetime
+from typing import Iterable
 
 import torch
 from torch import nn
 from torch.optim import Adam
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import MultiStepLR
 from tqdm import tqdm
 
 from .dataset import SRDataset
@@ -41,9 +42,9 @@ class SRNetLoss(nn.Module):
 class TrainPipeline:
     """ 训练流水线 """
 
-    def __init__(self, train_dataset_dir: str, test_dataset_dir: str, lr=0.01, step_size=10,
+    def __init__(self, train_dataset_dir: str, test_dataset_dir: str, lr, step_milestones: Iterable[int],
                  train_batch_size=10, test_batch_size=10, epochs=20, test_freq=5, use_gpu=True,
-                 model_dir=None):
+                 model_dir=None, model_path=None):
         """
         Parameters
         ----------
@@ -56,8 +57,8 @@ class TrainPipeline:
         lr: float
             学习率
 
-        step_size: int
-            学习率衰减的的步长
+        step_milestones: Iterable[int]
+            学习率衰减的分界点
 
         train_batch_size: int
             训练集 batch 大小
@@ -76,13 +77,19 @@ class TrainPipeline:
 
         model_dir: str
             模型保存文件夹路径，如果为 None，则保存到 `'./model'`
+
+        model_path: str
+            训练过的模型路径
         """
         self.lr = lr
         self.epochs = epochs
         self.test_freq = test_freq
         self.device = torch.device('cuda:0' if use_gpu else 'cpu')
-        self.model = SRNet().to(self.device)
         self.model_dir = model_dir if model_dir else 'model'
+        self.model = SRNet().to(self.device)
+        if model_path and os.path.exists(model_path):
+            self.model.load_state_dict(torch.load(model_path))
+            print(f'🧪 载入模型 {model_path}')
         # 创建数据集和数据加载器
         self.train_dataset = SRDataset(train_dataset_dir)
         self.test_dataset = SRDataset(test_dataset_dir)
@@ -93,8 +100,8 @@ class TrainPipeline:
         # 定义优化器和损失函数
         self.criterion = SRNetLoss()
         self.optimizer = Adam(self.model.parameters(), lr=0.01)
-        self.lr_scheduler = StepLR(
-            optimizer=self.optimizer, step_size=step_size, gamma=0.1)
+        self.lr_scheduler = MultiStepLR(
+            optimizer=self.optimizer, milestones=step_milestones, gamma=0.1)
 
     def save(self):
         """ 保存模型 """
@@ -144,7 +151,8 @@ class TrainPipeline:
                         S = S.to(self.device)
                         D = D.to(self.device)
                         M_hat, S_hat, D_hat = self.model(I)
-                        test_loss = self.criterion(M_hat, M, S_hat, S, D_hat, D)
+                        test_loss = self.criterion(
+                            M_hat, M, S_hat, S, D_hat, D)
                         cost_time = datetime.now() - start_time
                         test_bar.set_postfix_str(
                             f'测试损失：{test_loss.item():.5f}, 执行时间：{cost_time}\33[0m')
