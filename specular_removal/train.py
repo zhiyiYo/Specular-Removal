@@ -79,7 +79,7 @@ class TrainPipeline:
             模型保存文件夹路径，如果为 None，则保存到 `'./model'`
 
         model_path: str
-            训练过的模型路径
+            训练过的 SRNet 模型路径
         """
         self.lr = lr
         self.epochs = epochs
@@ -99,7 +99,7 @@ class TrainPipeline:
             self.test_dataset, batch_size=test_batch_size, shuffle=True)
         # 定义优化器和损失函数
         self.criterion = SRNetLoss()
-        self.optimizer = Adam(self.model.parameters(), lr=0.01)
+        self.optimizer = Adam(self.model.parameters(), 0.01, weight_decay=5e-4)
         self.lr_scheduler = MultiStepLR(
             optimizer=self.optimizer, milestones=step_milestones, gamma=0.1)
 
@@ -123,8 +123,8 @@ class TrainPipeline:
             with tqdm(self.train_loader, bar_format=bar_format) as train_bar:
                 train_bar.set_description(f"\33[36m🌌 Epoch {e + 1:3d}")
                 start_time = datetime.now()
-                self.model.train()
                 for I, M, S, D in self.train_loader:
+                    self.model.train()
                     I = I.to(self.device)
                     M = M.to(self.device)
                     S = S.to(self.device)
@@ -144,21 +144,21 @@ class TrainPipeline:
                 with tqdm(self.test_loader, bar_format=bar_format) as test_bar:
                     test_bar.set_description('\33[35m🛸 测试中')
                     start_time = datetime.now()
-                    self.model.eval()
-                    for I, M, S, D in self.test_loader:
-                        I = I.to(self.device)
-                        M = M.to(self.device)
-                        S = S.to(self.device)
-                        D = D.to(self.device)
-                        M_hat, S_hat, D_hat = self.model(I)
-                        test_loss = self.criterion(
-                            M_hat, M, S_hat, S, D_hat, D)
-                        cost_time = datetime.now() - start_time
-                        test_bar.set_postfix_str(
-                            f'测试损失：{test_loss.item():.5f}, 执行时间：{cost_time}\33[0m')
-                        test_bar.update()
+                    with torch.no_grad():
+                        for I, M, S, D in self.test_loader:
+                            I = I.to(self.device)
+                            M = M.to(self.device)
+                            S = S.to(self.device)
+                            D = D.to(self.device)
+                            M_hat, S_hat, D_hat = self.model(I)
+                            test_loss = self.criterion(
+                                M_hat, M, S_hat, S, D_hat, D)
+                            cost_time = datetime.now() - start_time
+                            test_bar.set_postfix_str(
+                                f'测试损失：{test_loss.item():.5f}, 执行时间：{cost_time}\33[0m')
+                            test_bar.update()
 
-                test_losses.append(test_loss.item())
+                    test_losses.append(test_loss.item())
                 self.save()
 
             # 记录误差

@@ -8,7 +8,7 @@ train_config = {
     'lr': 0.01,
     'epochs': 15,
     'test_freq': 2,
-    'step_milestones': [4],
+    'step_milestones': [5, 10],
     'train_dataset_dir': 'data/SHIQ_data/train',
     'test_dataset_dir': 'data/SHIQ_data/test',
     'train_batch_size': 24,

@@ -7,13 +7,13 @@ from PIL import Image
 from specular_removal import SRNet
 
 
-model_path = 'model\SRNet_2021-07-20_16-37-40.pth'
+model_path = 'model\SRNet_2021-07-23_23-00-22.pth'
 model = SRNet().to('cuda:0')
 model.load_state_dict(torch.load(model_path))
 model.eval()
 
 # 选取一张图片
-image_path = 'resource/images/茶杯.png'
+image_path = 'resource/images/木桌.png'
 I = Image.open(image_path)
 
 # 预测结果

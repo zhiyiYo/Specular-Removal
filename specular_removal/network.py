@@ -95,6 +95,38 @@ class DecoderBlock(nn.Module):
         return self.features(x)
 
 
+class PartialConvBlock(nn.Module):
+    """ 部分卷积模块 """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, padding: int, dilation=1):
+        super().__init__()
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.conv_I = nn.Conv2d(in_channels, out_channels,
+                                kernel_size, padding=padding, dilation=dilation)
+        self.conv_M = nn.Conv2d(
+            1, 1, kernel_size, padding=padding, dilation=dilation, bias=False)
+        nn.init.constant_(self.conv_M.weight, 1.0)
+        self.conv_M.requires_grad_(False)
+
+    def forward(self, x, M):
+        """
+        Parameters
+        ----------
+        x: Tensor of shape `(N, C, H, W)`
+            特征图
+
+        M: Tensor of shape `(N, 1, H, W)`
+            图像蒙版，高光区域的像素值为 `0`
+        """
+        M = self.conv_M(M)
+        index = M == 0
+        M[index] = 1
+        x = self.conv_I(M*x)
+        x = F.relu(self.bn(x/M))
+        M = M.masked_fill(index, 0)
+        return x, M
+
+
 class CDFFBlock(nn.Module):
     """ 累计密集特征融合模块 """
 
@@ -147,7 +179,7 @@ class SRNet(nn.Module):
         self.decoder4 = DecoderBlock(64, 16, scale_factor=2)
         self.decoder3 = DecoderBlock(32, 8, scale_factor=2)
         self.decoder2 = DecoderBlock(16, 4, scale_factor=2)
-        self.decoder1 = DecoderBlock(4, 1, scale_factor=2)
+        self.decoder1 = DecoderBlock(8, 1, scale_factor=2)
         # CDFF 模块
         self.cdff = CDFFBlock()
         # 输出卷积块
@@ -160,17 +192,16 @@ class SRNet(nn.Module):
             ConvBlock(17, 8, 3, 1),
             ConvBlock(8, 3, 3, 1),
         )
-        self.D_conv1 = nn.Conv2d(16, 7, 3, padding=1)
-        self.D_conv2 = nn.Sequential(
-            ConvBlock(14, 8, 3, 1),
-            ConvBlock(8, 3, 3, 1),
-        )
+        self.D_conv1 = PartialConvBlock(19, 13, 5, padding=2)
+        self.D_conv2 = PartialConvBlock(13, 8, 5, padding=2)
+        self.D_conv3 = PartialConvBlock(8, 3, 5, padding=2)
 
-    def forward(self, x):
+    def forward(self, I):
         """
         Parameters
         ----------
-        x: Tensor of shape `(N, C, H, W)`
+        I: Tensor of shape `(N, C, H, W)`
+            有高光的原始图像
 
         Returns
         -------
@@ -184,7 +215,7 @@ class SRNet(nn.Module):
             去掉高光后的图像
         """
         # 编码
-        x1 = self.encoder1(x)
+        x1 = self.encoder1(I)
         x2 = self.encoder2(x1)
         x3 = self.encoder3(x2)
         x4 = self.encoder4(x3)
@@ -194,11 +225,13 @@ class SRNet(nn.Module):
         x6 = torch.cat([self.decoder5(x5), x4], dim=1)
         x7 = torch.cat([self.decoder4(x6), x3], dim=1)
         x8 = torch.cat([self.decoder3(x7), x2], dim=1)
-        x9 = self.decoder2(x8)
+        x9 = torch.cat([self.decoder2(x8), x1], dim=1)
         x10 = torch.cat([self.decoder1(x9), x_cdff], dim=1)
         M = self.M_conv(x10)
         S = self.S_conv(torch.cat([x10, M], dim=1))
-        D = self.D_conv2(torch.cat([self.D_conv1(x10), M, S, x], dim=1))
+        D, M_ = self.D_conv1(torch.cat([x10, I-M*S], dim=1), 1-M)
+        D, M_ = self.D_conv2(D, M_)
+        D, M_ = self.D_conv3(D, M_)
         return M, S, D
 
     @exception_handler
